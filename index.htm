@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de GIF - Estilo Jota Borges</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Slabo+27px&display=swap');
+        body {
+            font-family: 'Slabo 27px', serif;
+            background-color: #FDFDFB;
+        }
+        .xilogravura-card {
+            background-color: #fff;
+            border: 2px solid #333;
+            box-shadow: 5px 5px 0px rgba(0,0,0,0.1);
+        }
+        .btn-primary {
+            background-color: #D9534F;
+            color: white;
+            transition: all 0.3s ease;
+            border: 2px solid #333;
+            box-shadow: 3px 3px 0px #333;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px) translateX(-2px);
+            box-shadow: 5px 5px 0px #333;
+        }
+        .btn-primary:active {
+            transform: translateY(1px) translateX(1px);
+            box-shadow: 2px 2px 0px #333;
+        }
+        .loader {
+            border: 8px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 8px solid #D9534F;
+            width: 60px;
+            height: 60px;
+            animation: spin 2s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-[#FDFDFB] text-[#333] min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-2xl mx-auto">
+        <div class="xilogravura-card rounded-lg p-6 md:p-8 text-center">
+            <h1 class="text-3xl md:text-4xl font-bold mb-2">Gerador de GIF Animado</h1>
+            <p class="text-lg md:text-xl mb-6">Estilo Xilogravura de Jota Borges</p>
+
+            <div class="mb-6">
+                <textarea id="promptInput" class="w-full p-3 rounded-md border-2 border-gray-300 focus:border-[#D9534F] focus:ring-0 transition duration-300" rows="3" placeholder="Ex: Um sanfoneiro tocando no sertão ao luar..."></textarea>
+            </div>
+
+            <button id="generateBtn" class="btn-primary font-bold py-3 px-8 rounded-md text-lg">
+                Gerar Animação
+            </button>
+
+            <div id="loading" class="hidden my-8 flex flex-col items-center justify-center">
+                <div class="loader"></div>
+                <p class="mt-4 text-lg">Criando sua xilogravura animada... Isso pode levar um minuto.</p>
+            </div>
+
+            <div id="result" class="hidden my-8">
+                <h2 class="text-2xl font-bold mb-4">Sua Animação:</h2>
+                <div class="border-4 border-dashed border-gray-300 p-2 rounded-lg inline-block">
+                    <img id="gifImage" src="" alt="GIF animado gerado" class="max-w-full rounded-md">
+                </div>
+                 <a id="downloadLink" href="#" download="xilogravura-animada.gif" class="btn-primary font-bold py-3 px-8 rounded-md text-lg mt-4 inline-block">
+                    Baixar GIF
+                </a>
+            </div>
+             <div id="error" class="hidden my-4 text-red-600 bg-red-100 border border-red-400 p-4 rounded-md"></div>
+        </div>
+        <footer class="text-center text-sm text-gray-500 mt-6">
+           <p>Inspirado na arte e cultura do Nordeste Brasileiro.</p>
+        </footer>
+    </div>
+
+    <!-- GIF.js library from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+
+    <script type="module">
+        // Gemini API Configuration
+        const API_KEY = ""; // Leave empty, it will be handled by the environment
+
+        // DOM Elements
+        const generateBtn = document.getElementById('generateBtn');
+        const promptInput = document.getElementById('promptInput');
+        const loading = document.getElementById('loading');
+        const result = document.getElementById('result');
+        const error = document.getElementById('error');
+        const gifImage = document.getElementById('gifImage');
+        const downloadLink = document.getElementById('downloadLink');
+
+        // Main function to generate the GIF
+        generateBtn.addEventListener('click', async () => {
+            const userPrompt = promptInput.value;
+            if (!userPrompt.trim()) {
+                showError("Por favor, descreva uma cena para a animação.");
+                return;
+            }
+
+            // Reset UI
+            hideError();
+            result.classList.add('hidden');
+            loading.classList.remove('hidden');
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Gerando...';
+
+            try {
+                // 1. Get animation frame descriptions from Gemini
+                const framePrompts = await getFramePrompts(userPrompt);
+
+                // 2. Generate images for each frame using Imagen
+                const imagePromises = framePrompts.map(p => generateImage(p));
+                const base64Images = await Promise.all(imagePromises);
+
+                // 3. Create GIF from the generated images
+                const gifUrl = await createGif(base64Images);
+
+                // 4. Display the result
+                gifImage.src = gifUrl;
+                downloadLink.href = gifUrl;
+                result.classList.remove('hidden');
+
+            } catch (err) {
+                console.error("An error occurred:", err);
+                showError(`Ocorreu um erro: ${err.message}. Tente novamente.`);
+            } finally {
+                // Reset UI
+                loading.classList.add('hidden');
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Gerar Animação';
+            }
+        });
+        
+        // Function to show error messages
+        function showError(message) {
+            error.textContent = message;
+            error.classList.remove('hidden');
+        }
+
+        // Function to hide error messages
+        function hideError() {
+            error.classList.add('hidden');
+        }
+
+        // Step 1: Use Gemini to generate descriptive prompts for 4 animation frames
+        async function getFramePrompts(userPrompt) {
+            const masterPrompt = `
+                Baseado na seguinte cena: "${userPrompt}", crie uma lista de 4 descrições de frames para uma animação curta.
+                Cada descrição deve ser uma pequena variação da anterior para criar movimento.
+                Mantenha a descrição de cada frame concisa e focada em uma única ação.
+                O estilo principal para todas as imagens será: "Xilogravura no estilo de Jota Borges, arte popular (folk art), estilo naif, linhas pretas fortes e grossas, cores chapadas e vibrantes, tema do nordeste brasileiro."
+                Não inclua o estilo principal na sua resposta, apenas as 4 descrições de frames.
+            `;
+
+            const chatHistory = [{ role: "user", parts: [{ text: masterPrompt }] }];
+            const payload = { 
+                contents: chatHistory,
+                // Asking for a JSON response makes it easier to parse
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            "frames": {
+                                type: "ARRAY",
+                                items: { type: "STRING" }
+                            }
+                        }
+                    }
+                }
+            };
+            
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Falha ao comunicar com a API Gemini: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0]) {
+                 const parsedJson = JSON.parse(result.candidates[0].content.parts[0].text);
+                 if (parsedJson.frames && parsedJson.frames.length > 0) {
+                    const baseStyle = "Xilogravura (woodcut) no estilo de Jota Borges, arte popular (folk art), estilo naif, linhas pretas fortes e grossas, cores chapadas e vibrantes sem gradientes, tema do sertão nordestino, ";
+                    // Combine the base style with the specific frame description
+                    return parsedJson.frames.map(frameDesc => baseStyle + frameDesc);
+                 }
+            }
+            
+            throw new Error("Não foi possível gerar as descrições dos frames. A resposta da API estava malformada.");
+        }
+
+        // Step 2: Generate a single image using Imagen
+        async function generateImage(prompt) {
+             const payload = { 
+                instances: [{ prompt: prompt }],
+                parameters: { "sampleCount": 1 }
+            };
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${API_KEY}`;
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Falha ao gerar imagem com a API Imagen: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+
+            if (result.predictions && result.predictions[0] && result.predictions[0].bytesBase64Encoded) {
+                return result.predictions[0].bytesBase64Encoded;
+            }
+
+            throw new Error("Não foi possível gerar a imagem. A resposta da API estava vazia.");
+        }
+
+        // Step 3: Create a GIF from an array of base64 image strings
+        function createGif(base64Images) {
+            return new Promise((resolve, reject) => {
+                const firstImage = new Image();
+                firstImage.src = `data:image/png;base64,${base64Images[0]}`;
+                
+                firstImage.onload = () => {
+                    const gif = new GIF({
+                        workers: 2,
+                        quality: 10,
+                        width: firstImage.width,
+                        height: firstImage.height,
+                        workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
+                    });
+
+                    // Add each image as a frame to the GIF
+                    const imageElements = base64Images.map(b64 => {
+                        const img = new Image();
+                        img.src = `data:image/png;base64,${b64}`;
+                        return img;
+                    });
+                    
+                    // Ensure all images are loaded before adding to GIF
+                    let loadedCount = 0;
+                    imageElements.forEach(img => {
+                       img.onload = () => {
+                           loadedCount++;
+                           if(loadedCount === imageElements.length) {
+                                allImagesLoaded();
+                           }
+                       }
+                       // Handle potential loading errors for individual images
+                       img.onerror = () => {
+                           reject(new Error("Falha ao carregar uma das imagens do frame."));
+                       }
+                    });
+
+                    function allImagesLoaded() {
+                        imageElements.forEach(img => {
+                            gif.addFrame(img, { delay: 250 }); // 250ms delay between frames
+                        });
+
+                        gif.on('finished', function(blob) {
+                            resolve(URL.createObjectURL(blob));
+                        });
+
+                        gif.render();
+                    }
+                };
+                
+                firstImage.onerror = () => {
+                    reject(new Error("Falha ao carregar a primeira imagem para criar o GIF."));
+                }
+            });
+        }
+
+    </script>
+</body>
+</html>
